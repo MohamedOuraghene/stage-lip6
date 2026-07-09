@@ -35,15 +35,18 @@ def clean_data():
     print(f"Ports avec un Type : {matching['Type'].notna().sum()} / {len(matching)}")
     print(f"Ports sans Type : {matching['Type'].isna().sum()}")
 
-    df_clean = pd.read_csv(base_dir / "data_clean" / "stays_basic_info_2010_clean.csv")
-    print(f"Séjours avec un Type : {df_clean['Type'].notna().sum()} / {len(df_clean)}")
-    print(f"Séjours sans Type : {df_clean['Type'].isna().sum()}")
-    
-    # On renomme pour éviter les doublons de colonnes inutiles
+
+# 4. Jointure avec le dictionnaire des ports (On la remonte ICI)
     df = df.merge(matching_clean, left_on="PLACE ID", right_on="ID_Lloyds", how="left")
     df = df.drop(columns=["ID_Lloyds"]) # Nettoyage de la colonne en double
 
-    # 5. Sauvegarde
+    # --- Vérification sur le brouillon 'df' en cours de traitement ---
+    print("\n--- Diagnostic des séjours maritimes ---")
+    print(f"Séjours avec un Type : {df['Type'].notna().sum()} / {len(df)}")
+    print(f"Séjours sans Type : {df['Type'].isna().sum()}")
+    print("-----------------------------------------\n")
+
+    # 5. Sauvegarde sur le disque
     df.to_csv(output_path, index=False)
     print(f"✓ Données nettoyées et sauvegardées ({len(df)} lignes) -> {output_path}")
 
