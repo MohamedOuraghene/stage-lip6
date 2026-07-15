@@ -4,11 +4,18 @@
 
 - Un masque booléen c'est une série de True/False
 
-- les [...] apres le nom d'un dataframe en Python ont 2 roles :
+- # les [...] apres le nom d'un dataframe en Python ont 2 roles :
  1) Si tu lui donnes du texte genre dataframelambda["Name"] -> te donne uniquement la colonne des noms
                                     dataframelambda[["Name","Poids"]] -> te donne un sous tableau avec les colonnes
  2) Si tu lui donnes un masque booléen, là Pandas comprend que tu veux sélectionner des lignes horizontales
 donc dataframelambda[masque] te gardera seulement les lignes ou le masque vaut True
+
+
+# .loc utilisation 1) : permet de modifier uniquement les colonnes des lignes où le masque vaut True
+- dataframe.loc[masque,"Colonne1","Colonne2","..."] = dataframe.loc[masque,"Colonne1","Colonne2","..."]
+
+# .isin utilisation 1) <=> dataframe["Ville"].isin(["Paris","Lyon "]) : renvoie une série de booléen pour chaque ligne (possible de plusieurs colonnes et ça renvoie un dataframe)
+
 
 
 
