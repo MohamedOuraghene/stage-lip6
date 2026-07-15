@@ -50,6 +50,10 @@ def clean_data():
     df.to_csv(output_path, index=False)
     print(f"✓ Données nettoyées et sauvegardées ({len(df)} lignes) -> {output_path}")
 
+
+
+    
+
 if __name__ == "__main__":
     clean_data()
 

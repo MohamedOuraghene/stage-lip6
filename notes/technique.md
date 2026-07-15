@@ -9,3 +9,23 @@
                                     dataframelambda[["Name","Poids"]] -> te donne un sous tableau avec les colonnes
  2) Si tu lui donnes un masque booléen, là Pandas comprend que tu veux sélectionner des lignes horizontales
 donc dataframelambda[masque] te gardera seulement les lignes ou le masque vaut True
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- Réseau scale-free: quelques hubs ont la majorité des noeuds ont peu de connexions mais quelques noeuds (hubs) disposent de bcp de connexion, elle suit une loi puissance mathématique. (y'a d'autres types de réseaux intéressants)

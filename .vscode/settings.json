@@ -1,0 +1,6 @@
+{
+  "python.defaultInterpreterPath": "C:\\Users\\ou\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+"python.envFile": "${workspaceFolder}/.env",
+"python-envs.defaultEnvManager": "ms-python.python:conda",
+"python-envs.defaultPackageManager": "ms-python.python:conda"
+}
