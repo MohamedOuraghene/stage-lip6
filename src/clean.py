@@ -45,6 +45,7 @@ def clean_data():
     print(f"Séjours avec un Type : {df['Type'].notna().sum()} / {len(df)}")
     print(f"Séjours sans Type : {df['Type'].isna().sum()}")
     print("-----------------------------------------\n")
+    
 
     # 5. Sauvegarde sur le disque
     df.to_csv(output_path, index=False)

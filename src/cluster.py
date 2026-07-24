@@ -13,23 +13,23 @@ def haversine_vectorized(lon1, lat1, lon2, lat2):
     """
     # Conversion des degrés en radians
     lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
-    
+
     # Formule de Haversine
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
     c = 2.0 * np.arcsin(np.sqrt(a))
-    
+
     # Rayon de la Terre en kilomètres
     rayon_terre = 6371.0
     return c * rayon_terre
 
 
-def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.001, save=True, verbose=True):
+def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=True, verbose=True):
     base_dir = Path(__file__).resolve().parent.parent
     clean_csv_path = base_dir / "data_clean" / "stays_basic_info_2010_clean.csv"
     output_csv_path = base_dir / "data_clean" / "ports_clustered_2010.csv"
-    
+
     if not clean_csv_path.exists():
         print(" fichier clean introuvable. lance d'abord clean.py ")
         return None
@@ -39,7 +39,7 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.001, save=Tr
 
     # 1. Calculer la fréquentation par Port
     ports_stats = df.groupby(["PLACE ID", "Name_Final", "COUNTRY", "X1", "Y1", "Type"], dropna=False).size().reset_index(name="FREQUENTATION")
-    
+
     # 2. paramétrage du seuil dynamique
     trafic_total = ports_stats["FREQUENTATION"].sum()
     SEUIL_DYNAMIQUE = int(trafic_total * pourcentage_seuil)
@@ -51,9 +51,15 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.001, save=Tr
         print(" \n")
 
     # 3. calcul des distances aux ports P les plus proches
-    # On commence par éliminer TOUS les points qui n'ont pas de coordonnées GPS valides (X1 ou Y1 est NaN)
+    # RÉPARATION 5 : les points sans GPS sont mis de côté, pas supprimés silencieusement.
+    # Ils gardent leur identité (ID + trafic), seule leur position manque.
+    sans_gps = ports_stats[ports_stats[["X1", "Y1"]].isna().any(axis=1)]
     ports_stats_geo = ports_stats.dropna(subset=["X1", "Y1"])
-    
+
+    if verbose:
+        print(f" Points sans coordonnées GPS : {len(sans_gps)} ports / {sans_gps['FREQUENTATION'].sum()} séjours")
+        print(" -> conservés comme clusters autonomes (non agrégeables géographiquement)\n")
+
     # On fait nos groupes sur ce tableau propre géographiquement
     ports_P = ports_stats_geo[ports_stats_geo["Type"] == "P"].copy()
     ports_autres = ports_stats_geo[ports_stats_geo["Type"] != "P"].copy()
@@ -71,10 +77,10 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.001, save=Tr
     for idx, row in ports_autres.iterrows():
         # Calcul de la distance entre CE point secondaire et TOUS les ports P du monde
         distances = haversine_vectorized(row["X1"], row["Y1"], ports_P["X1"], ports_P["Y1"])
-        
+
         # On trouve l'index du port P le plus proche
         idx_proche = distances.idxmin()
-        
+
         # On extrait la distance minimale et les infos du port associé
         distances_minimales.append(distances.min())
         ids_port_proche.append(ports_P.loc[idx_proche, "PLACE ID"])
@@ -96,32 +102,46 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.001, save=Tr
     # Stratégie de fusion des ports A et L avec les ports P proches
     RAYON_MAX_KM = rayon_km
 
-    # Masque de trafic pour les ports commerciaux (P) et les zones A/L
+    # --- Premier calcul des masques, uniquement pour identifier le bruit ---
     a_gros_trafic = ports_complet["FREQUENTATION"] >= SEUIL_DYNAMIQUE
-    
-    # Condition 1 : Les types qui sont TOUJOURS des hubs autonomes 
-    est_hub_par_nature = ports_complet["Type"].isin(["T", "C", "W", "O"])
-    
-    # Condition 2 : Les ports commerciaux (P) assez gros pour être autonomes
-    est_port_P_majeur = (ports_complet["Type"] == "P") & a_gros_trafic
-    
-    # Condition 3 : Les zones A et L isolées mais genr sauvées par leur gros trafic 
     est_A_ou_L = ports_complet["Type"].isin(["A", "L"])
     est_isole = ports_complet["DIST_PORT_PROCHE"] > RAYON_MAX_KM
+
+    # GROUPE 3 : Le bruit éliminé (Uniquement les A ou L isolés à faible trafic)
+    est_bruit = est_A_ou_L & est_isole & ~a_gros_trafic
+    Bruit_Elimine = ports_complet[est_bruit].copy()
+
+    # RÉPARATION 1 : on retire réellement le bruit du tableau de travail
+    ports_complet = ports_complet[~est_bruit].copy()
+
+    # --- Recalcul des masques sur le tableau filtré (les anciens ne sont plus alignés) ---
+    a_gros_trafic = ports_complet["FREQUENTATION"] >= SEUIL_DYNAMIQUE
+    est_A_ou_L = ports_complet["Type"].isin(["A", "L"])
+    est_isole = ports_complet["DIST_PORT_PROCHE"] > RAYON_MAX_KM
+    est_proche = ports_complet["DIST_PORT_PROCHE"] <= RAYON_MAX_KM
+
+    # Condition 1 : Les types qui sont TOUJOURS des hubs autonomes
+    est_hub_par_nature = ports_complet["Type"].isin(["T", "C", "W", "O"])
+
+    # Condition 2 : Les ports commerciaux (P) assez gros pour être autonomes
+    est_port_P_majeur = (ports_complet["Type"] == "P") & a_gros_trafic
+
+    # Condition 3 : Les zones A et L isolées mais sauvées par leur gros trafic
     L_ou_A_hub_sauve = est_A_ou_L & est_isole & a_gros_trafic
 
     # GROUPE 1 : Les Hubs Finaux (Laissés 100% autonomes)
-    Hubs_Finaux = ports_complet[est_hub_par_nature | est_port_P_majeur | L_ou_A_hub_sauve]
+    est_hub = est_hub_par_nature | est_port_P_majeur | L_ou_A_hub_sauve
+    Hubs_Finaux = ports_complet[est_hub]
 
     # GROUPE 2 : Les Nœuds à agglomérer (Petits ports P, ou A/L proches)
-    est_proche = ports_complet["DIST_PORT_PROCHE"] <= RAYON_MAX_KM
     A_ou_L_a_fusionner = est_A_ou_L & est_proche
     petits_ports_P = (ports_complet["Type"] == "P") & ~a_gros_trafic
-    
+
     Agglomerations_Candidats = ports_complet[petits_ports_P | A_ou_L_a_fusionner]
 
-    # GROUPE 3 : Le bruit éliminé (Uniquement les A ou L isolés à faible trafic)
-    Bruit_Elimine = ports_complet[est_A_ou_L & est_isole & ~a_gros_trafic]
+    # RÉPARATION 3 : on matérialise le statut de hub en colonne.
+    # Un merge remet l'index à zéro : un masque booléen calculé avant ne serait plus aligné après.
+    ports_complet["EST_HUB"] = est_hub
 
     # 5. AFFICHAGE DES RÉSULTATS DU TRI
     if verbose:
@@ -135,42 +155,56 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.001, save=Tr
     ports_complet["Cluster_ID"] = ports_complet["PLACE ID"]
     ports_complet["Cluster_Name"] = ports_complet["Name_Final"]
 
-    # Étape 2 : Isoler les ports de type P pour appliquer Clustering 
-    ports_P_uniquement = ports_complet[ports_complet["Type"] == "P"].copy()
+    # Étape 2 : RÉPARATION 2 -> le clustering ne tourne QUE sur les petits ports P.
+    # Les hubs conservent leur identité propre et ne peuvent pas être absorbés.
+    ports_a_clusteriser = ports_complet[petits_ports_P].copy()
 
-    # On récupère les coordonnées GPS
-    lons = ports_P_uniquement["X1"].values
-    lats = ports_P_uniquement["Y1"].values
+    if len(ports_a_clusteriser) >= 2:
+        # On récupère les coordonnées GPS
+        lons = ports_a_clusteriser["X1"].values
+        lats = ports_a_clusteriser["Y1"].values
 
-    # Calcul de la matrice de distances
-    matrice_distances = haversine_vectorized(lons[:, np.newaxis], lats[:, np.newaxis], lons[np.newaxis, :], lats[np.newaxis, :])
+        # Calcul de la matrice de distances
+        matrice_distances = haversine_vectorized(lons[:, np.newaxis], lats[:, np.newaxis], lons[np.newaxis, :], lats[np.newaxis, :])
 
-    # Compression de la matrice pour SciPy
-    vecteur_distances = squareform(matrice_distances, checks=False)
+        # Compression de la matrice pour SciPy
+        vecteur_distances = squareform(matrice_distances, checks=False)
 
-    # Construction de l'arbre (Linkage)
-    arbre_clustering = linkage(vecteur_distances, method="average")
+        # Construction de l'arbre (Linkage)
+        arbre_clustering = linkage(vecteur_distances, method="complete")
 
-    # Coupe de l'arbre au rayon choisi (Fcluster)
-    labels_clusters = fcluster(arbre_clustering, t=RAYON_MAX_KM, criterion="distance")
+        # Coupe de l'arbre au rayon choisi (Fcluster)
+        labels_clusters = fcluster(arbre_clustering, t=RAYON_MAX_KM, criterion="distance")
 
-    # On ajoute ces numéros de clusters temporaires
-    ports_P_uniquement["SciPy_Cluster_ID"] = labels_clusters
+        # On ajoute ces numéros de clusters temporaires
+        ports_a_clusteriser["SciPy_Cluster_ID"] = labels_clusters
 
-    # Tri par fréquentation décroissante : le "chef" de chaque cluster sera en première position
-    ports_P_uniquement = ports_P_uniquement.sort_values(by="FREQUENTATION", ascending=False)
+        # Tri par fréquentation décroissante : le "chef" de chaque cluster sera en première position
+        ports_a_clusteriser = ports_a_clusteriser.sort_values(by="FREQUENTATION", ascending=False)
 
-    # Propagation via .transform("first")
-    ports_P_uniquement["Cluster_ID_Definitif"] = (
-        ports_P_uniquement.groupby("SciPy_Cluster_ID")["PLACE ID"].transform("first")
-    )
+        # Propagation via .transform("first")
+        ports_a_clusteriser["Cluster_ID_Definitif"] = (
+            ports_a_clusteriser.groupby("SciPy_Cluster_ID")["PLACE ID"].transform("first")
+        )
+        ports_a_clusteriser["Cluster_Name_Definitif"] = (
+            ports_a_clusteriser.groupby("SciPy_Cluster_ID")["Name_Final"].transform("first")
+        )
+    else:
+        ports_a_clusteriser["Cluster_ID_Definitif"] = ports_a_clusteriser["PLACE ID"]
+        ports_a_clusteriser["Cluster_Name_Definitif"] = ports_a_clusteriser["Name_Final"]
 
-    ports_P_uniquement["Cluster_Name_Definitif"] = (
-        ports_P_uniquement.groupby("SciPy_Cluster_ID")["Name_Final"].transform("first")
-    )
+    # Etape 3 : Jointure finale
+    # La table de correspondance contient les petits ports P (-> leur cluster)
+    # ET les hubs P (-> eux-mêmes), pour qu'un mouillage voisin d'un gros port
+    # puisse quand même être rattaché à ce gros port.
+    corresp_petits = ports_a_clusteriser[["PLACE ID", "Cluster_ID_Definitif", "Cluster_Name_Definitif"]]
 
-    # Etape 3 : Jointure finale 
-    table_correspondance = ports_P_uniquement[["PLACE ID", "Cluster_ID_Definitif", "Cluster_Name_Definitif"]]
+    hubs_P = ports_complet[est_port_P_majeur][["PLACE ID", "Name_Final"]].copy()
+    hubs_P["Cluster_ID_Definitif"] = hubs_P["PLACE ID"]
+    hubs_P["Cluster_Name_Definitif"] = hubs_P["Name_Final"]
+    hubs_P = hubs_P.drop(columns=["Name_Final"])
+
+    table_correspondance = pd.concat([corresp_petits, hubs_P])
 
     ports_complet = ports_complet.merge(
         table_correspondance,
@@ -180,22 +214,41 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.001, save=Tr
         suffixes=("", "_y")
     )
 
-    # Attribution de l'ID de cluster et du nom harmonisé 
+    # RÉPARATION 4 : le rattachement est CONDITIONNEL à la distance.
+    # Au-delà du rayon, on annule l'attribution : le point redevient autonome.
+    trop_loin = ports_complet["DIST_PORT_PROCHE"] > RAYON_MAX_KM
+    ports_complet.loc[trop_loin, "Cluster_ID_Definitif"] = np.nan
+    ports_complet.loc[trop_loin, "Cluster_Name_Definitif"] = np.nan
+
+    # Un hub reste son propre cluster, quoi qu'ait produit le merge
+    ports_complet.loc[ports_complet["EST_HUB"], "Cluster_ID_Definitif"] = np.nan
+    ports_complet.loc[ports_complet["EST_HUB"], "Cluster_Name_Definitif"] = np.nan
+
+    # Attribution de l'ID de cluster et du nom harmonisé
     ports_complet["Cluster_ID"] = ports_complet["Cluster_ID_Definitif"].fillna(ports_complet["PLACE ID"])
     ports_complet["Cluster_Name"] = ports_complet["Cluster_Name_Definitif"].fillna(ports_complet["Name_Final"])
-
-    # Ajout propre du suffixe " Area" pour tout le monde
-    ports_complet["Cluster_Name"] = ports_complet["Cluster_Name"].astype(str) + " Area"
 
     # Nettoyage des colonnes temporaires
     ports_complet = ports_complet.drop(columns=["Cluster_ID_Definitif", "Cluster_Name_Definitif", "PLACE ID_y"])
 
-    #frequentation_sorted = ports_stats["FREQUENTATION"].sort_values(ascending=False)
-    #plt.plot(range(1, len(frequentation_sorted)+1), frequentation_sorted.values)
-    #plt.xlabel("Rang du port (log)")
-    #plt.ylabel("Fréquentation (log)")
-    #plt.title("Distribution de la fréquentation des ports (échelle log-log)")
-    #plt.show()"
+    # RÉPARATION 5 (suite) : on réintègre les points sans GPS comme clusters autonomes
+    if not sans_gps.empty:
+        sans_gps = sans_gps.copy()
+        sans_gps["DIST_PORT_PROCHE"] = np.nan
+        sans_gps["PORT_PROCHE_ID"] = sans_gps["PLACE ID"]
+        sans_gps["PORT_PROCHE_NAME"] = sans_gps["Name_Final"]
+        sans_gps["EST_HUB"] = True
+        sans_gps["Cluster_ID"] = sans_gps["PLACE ID"]
+        sans_gps["Cluster_Name"] = sans_gps["Name_Final"]
+        ports_complet = pd.concat([ports_complet, sans_gps], ignore_index=True)
+
+    # Le suffixe " Area" n'a de sens que pour les clusters réellement multi-points
+    taille_cluster = ports_complet.groupby("Cluster_ID")["PLACE ID"].transform("nunique")
+    ports_complet["Cluster_Name"] = np.where(
+        taille_cluster > 1,
+        ports_complet["Cluster_Name"].astype(str) + " Area",
+        ports_complet["Cluster_Name"].astype(str)
+    )
 
     # sauvegarde du fichier pour étapes suivantes
     if save:
@@ -226,7 +279,7 @@ def tester_combinaison(rayon_km, pourcentage_seuil):
 if __name__ == "__main__":
     # 1. On lance le clustering et on récupère le tableau final
     ports_final = prepare_ports_for_clustering()
-    
+
     if ports_final is not None:
         # 2. On compte les points uniques de départ et les clusters d'arrivée
         nb_points_initiaux = ports_final["PLACE ID"].nunique()
@@ -240,9 +293,23 @@ if __name__ == "__main__":
         print(f"➔ RÉDUCTION DE LA COMPLEXITÉ : {taux_reduction:.1f}%")
         print(" \n")
 
-    # 4. Matrice de sensibilité (grid search simple)
-    rayons_to_test = [30, 44, 75, 100, 150]
-    seuils_to_test = [0.001, 0.005, 0.01, 0.02]
+        gros_clusters = ports_final.groupby(["Cluster_ID", "Cluster_Name"]).agg(
+            nb_ports=("PLACE ID", "nunique"),
+            trafic=("FREQUENTATION", "sum")
+        ).sort_values("nb_ports", ascending=False).head(15)
+        print(gros_clusters)
+
+        for cid, grp in ports_final.groupby("Cluster_ID"):
+            if grp["PLACE ID"].nunique() < 2 or grp[["X1","Y1"]].isna().any().any():
+                continue
+            lons, lats = grp["X1"].values, grp["Y1"].values
+            d = haversine_vectorized(lons[:,None], lats[:,None], lons[None,:], lats[None,:])
+            if d.max() > 44:
+                print(f"{grp['Cluster_Name'].iloc[0]} : {d.max():.0f} km")
+
+        # 4. Matrice de sensibilité (grid search simple)
+        rayons_to_test = [30, 44, 75, 100, 150]
+        seuils_to_test = [0.001, 0.005, 0.01, 0.02]
 
     resultats = []
     for r in rayons_to_test:
