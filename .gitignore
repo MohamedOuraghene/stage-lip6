@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 
 data_clean/
+
+notes/
+
+notes/contexte.md
