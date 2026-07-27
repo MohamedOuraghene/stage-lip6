@@ -1,60 +1,91 @@
-import pandas as pd
 from pathlib import Path
+import pandas as pd
 
-def clean_data():
-    base_dir = Path(__file__).resolve().parent.parent
-    csv_path = base_dir / "data" / "stays_basic_info_2010.csv"
-    matching_path = base_dir / "data" / "Matching_ports_city1_city2.xlsx"
-    output_dir = base_dir / "data_clean"
-    output_path = output_dir / "stays_basic_info_2010_clean.csv"
+# Import de la configuration centralisée
+from config import DATA_CLEAN_DIR, DATA_DIR, MATCHING_PORTS_FILE
 
-    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Chargement et nettoyage colonnes
-    df = pd.read_csv(csv_path)
+def clean_data(year=2010):
+    output_path = DATA_CLEAN_DIR / f"stays_basic_info_{year}_clean.csv"
+
+    # Liste de tous les motifs de noms de fichiers possibles pour l'année
+    candidates = [
+        DATA_DIR / f"{year}_MOVES.csv",
+        DATA_DIR / f"{year}_MOVES.csv.gz",
+        DATA_DIR / f"MOVES_{year}.csv",
+        DATA_DIR / f"MOVES_{year}.csv.gz",
+        DATA_DIR / f"MOVES_{year}.xlsx",
+        DATA_DIR / f"{year}_MOVES.xlsx",
+        DATA_DIR / f"stays_basic_info_{year}.csv",
+    ]
+
+    input_file = None
+    for filepath in candidates:
+        if filepath.exists():
+            input_file = filepath
+            break
+
+    if input_file is None:
+        print(f"Erreur : Aucun fichier trouvé pour l'année {year} dans {DATA_DIR}")
+        return None
+
+    print(f"Chargement du fichier : {input_file.name}...")
+
+    # Lecture selon l'extension du fichier
+    if input_file.suffix in [".xlsx", ".xls"]:
+        df = pd.read_excel(input_file)
+    else:
+        df = pd.read_csv(input_file, low_memory=False)
+
+    # Nettoyage des colonnes
     df.columns = df.columns.str.strip()
 
-    # 2. Conversion des dates
-    df["ARRIVAL DATE"] = pd.to_datetime(df["ARRIVAL DATE"], format="%d/%m/%Y")
-    df["SAILING DATE"] = pd.to_datetime(df["SAILING DATE"], format="%d/%m/%Y")
+    # Conversion flexible des dates
+    df["ARRIVAL DATE"] = pd.to_datetime(
+        df["ARRIVAL DATE"], format="mixed", errors="coerce"
+    )
+    df["SAILING DATE"] = pd.to_datetime(
+        df["SAILING DATE"], format="mixed", errors="coerce"
+    )
 
-    # 3. Durée de séjour
-    df["STAY DURATION DAYS"] = (df["SAILING DATE"] - df["ARRIVAL DATE"]).dt.days
+    # Filtrer les dates invalides
+    df = df.dropna(subset=["ARRIVAL DATE", "SAILING DATE"]).copy()
 
-    # 4. Jointure avec le dictionnaire des ports
-    matching = pd.read_excel(matching_path)
-    # Dans src/clean.py
-    matching_clean = matching[["ID_Lloyds", "Name_Final", "COUNTRY", "X1", "Y1", "Type"]].drop_duplicates(subset="ID_Lloyds")
+    # Calcul de la durée de séjour
+    df["STAY DURATION DAYS"] = (
+        df["SAILING DATE"] - df["ARRIVAL DATE"]
+    ).dt.days
+    df = df[df["STAY DURATION DAYS"] >= 0].copy()
 
-    print(matching["Type"].value_counts())
-    print(matching["Analysis1"].value_counts().head(20))
+    # Jointure avec le dictionnaire des ports
+    matching = pd.read_excel(MATCHING_PORTS_FILE)
+    matching_clean = matching[
+        ["ID_Lloyds", "Name_Final", "COUNTRY", "X1", "Y1", "Type"]
+    ].drop_duplicates(subset="ID_Lloyds")
 
-    print(matching[matching["ID_Lloyds"].isin([2581, 1584, 1740, 5717])][["ID_Lloyds", "Name_Final", "Type"]])
+    df = df.merge(
+        matching_clean, left_on="PLACE ID", right_on="ID_Lloyds", how="left"
+    )
+    df = df.drop(columns=["ID_Lloyds"], errors="ignore")
 
-    # Vérification si y'a des ports sans Type
-    print(f"Ports avec un Type : {matching['Type'].notna().sum()} / {len(matching)}")
-    print(f"Ports sans Type : {matching['Type'].isna().sum()}")
+    print(f"\n--- Diagnostic Année {year} ---")
+    print(f"• Total mouvements valides : {len(df)}")
+    print(f"• Ports uniques actifs : {df['PLACE ID'].nunique()}")
+    print(f"• Navires uniques actifs : {df['VESSEL ID'].nunique()}")
 
-
-# 4. Jointure avec le dictionnaire des ports (On la remonte ICI)
-    df = df.merge(matching_clean, left_on="PLACE ID", right_on="ID_Lloyds", how="left")
-    df = df.drop(columns=["ID_Lloyds"]) # Nettoyage de la colonne en double
-
-    # --- Vérification sur le brouillon 'df' en cours de traitement ---
-    print("\n--- Diagnostic des séjours maritimes ---")
-    print(f"Séjours avec un Type : {df['Type'].notna().sum()} / {len(df)}")
-    print(f"Séjours sans Type : {df['Type'].isna().sum()}")
-    print("-----------------------------------------\n")
-    
-
-    # 5. Sauvegarde sur le disque
     df.to_csv(output_path, index=False)
-    print(f"✓ Données nettoyées et sauvegardées ({len(df)} lignes) -> {output_path}")
+    print(f"✓ Fichier nettoyé sauvegardé : {output_path}\n")
+    return df
 
-
-
-    
 
 if __name__ == "__main__":
-    clean_data()
+    clean_data(year=2010)
+    clean_data(year=2002)
 
+    # Test d'inspection 2002 en utilisant le chemin robuste via DATA_CLEAN_DIR
+    file_2002 = DATA_CLEAN_DIR / "stays_basic_info_2002_clean.csv"
+    if file_2002.exists():
+        df_2002 = pd.read_csv(file_2002)
+        df_2002["ARRIVAL DATE"] = pd.to_datetime(df_2002["ARRIVAL DATE"])
+        print("=== Répartition des arrivées par mois en 2002 ===")
+        print(df_2002["ARRIVAL DATE"].dt.month.value_counts().sort_index())
