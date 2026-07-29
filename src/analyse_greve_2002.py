@@ -24,13 +24,13 @@ def trouver_ports_cote_ouest():
 def ports_cote_ouest_actifs(annee=2002, n_top=20):
     """Croise le filtre géographique avec le trafic réellement observé."""
     ouest = trouver_ports_cote_ouest()          # tes 211 candidats
-    ids_ouest = set(ouest["ID_Lloyds"])
+    ids_ouest = set(ouest["ID_Lloyds"]) # ensemble plutot que liste car c'est en o(1) pour le test d'appartenance
 
     df = pd.read_csv(DATA_CLEAN_DIR / f"stays_basic_info_{annee}_clean.csv")
-    subset = df[df["PLACE ID"].isin(ids_ouest)]
+    subset = df[df["PLACE ID"].isin(ids_ouest)] # isin est l'équivalent de where PLACE ID in ids_ouest en SQL
 
     trafic = (subset.groupby(["PLACE ID", "Name_Final", "Type"])
-                    .size()
+                    .size()                           # .size() compte le nombre de lignes par groupe contrairement à .count() qui compte les valeurs non nulles d'une colonne
                     .sort_values(ascending=False)
                     .reset_index(name="ESCALES"))
 
@@ -104,7 +104,57 @@ def arrivees_quotidiennes(place_ids, annee=2002, label=""):
 
     return quotidien
 
+def comparer_groupes(annee=2002):
+    df = pd.read_csv(DATA_CLEAN_DIR / f"stays_basic_info_{annee}_clean.csv")
+    df["ARRIVAL DATE"] = pd.to_datetime(df["ARRIVAL DATE"])
+    df["jour"] = df["ARRIVAL DATE"].dt.date
+
+    mondial = df.groupby("jour").size()
+    lockout = [d for d in mondial.index if d.month == 10 and 1 <= d.day <= 8]
+    calme   = [d for d in mondial.index if d.month in (2, 3, 6)]
+
+    for nom, ids in [("ILWU (conteneurs)", PORTS_ILWU_MAJEURS),
+                     ("Pétroliers (témoin)", PORTS_PETROLIERS)]:
+        sub  = df[df["PLACE ID"].isin(ids)]
+        part = (100 * sub.groupby("jour").size() / mondial).reindex(mondial.index, fill_value=0)
+        m_calme, m_lock = part[calme].mean(), part[lockout].mean()
+        print(f"\n{nom}")
+        print(f"  escales totales : {len(sub)}")
+        print(f"  part mois calmes : {m_calme:.3f}%")
+        print(f"  part lockout     : {m_lock:.3f}%")
+        print(f"  ratio            : {m_lock/m_calme:.2f}  ({100*(m_lock/m_calme-1):+.0f}%)")
+
+def tester_robustesse(annee=2002):
+    df = charger(annee)
+    MOIS_CALMES = [2, 3, 6]
+
+    # Récupérer tous les ports côte ouest actifs, triés par trafic
+    from analyse_greve_2002 import trouver_ports_cote_ouest
+    ouest = trouver_ports_cote_ouest()
+    ids = set(ouest["ID_Lloyds"])
+    actifs = df[df["PLACE ID"].isin(ids)].groupby("PLACE ID").size()
+    actifs = actifs.sort_values(ascending=False)
+
+    definitions = {
+        "Top 5":  actifs.head(5).index.tolist(),
+        "Top 9 (retenu)": PORTS_ILWU,
+        "Top 15": actifs.head(15).index.tolist(),
+        "Top 30": actifs.head(30).index.tolist(),
+        "Tous (48)": actifs.index.tolist(),
+    }
+
+    for nom, ports in definitions.items():
+        part = part_du_mondial(df, ports)
+        moy_calme = moyenne_sur_mois(part, MOIS_CALMES)
+
+        index = pd.to_datetime(part.index)
+        est_lockout = (index.month == 10) & (index.day <= 8)
+        moy_lock = part[est_lockout].mean()
+
+        print(f"{nom:18s} : {len(ports):3d} ports, "
+              f"calme {moy_calme:.3f}% → lockout {moy_lock:.3f}%  "
+              f"({100*(moy_lock/moy_calme - 1):+.0f}%)")
+
 
 if __name__ == "__main__":
-    arrivees_quotidiennes(PORTS_ILWU_MAJEURS, label="Ports ILWU majeurs")
-
+    tester_robustesse()

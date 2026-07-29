@@ -42,10 +42,10 @@ def clean_data(year=2010):
 
     # Conversion flexible des dates
     df["ARRIVAL DATE"] = pd.to_datetime(
-        df["ARRIVAL DATE"], format="mixed", errors="coerce"
+        df["ARRIVAL DATE"], dayfirst=True, errors="coerce"
     )
     df["SAILING DATE"] = pd.to_datetime(
-        df["SAILING DATE"], format="mixed", errors="coerce"
+        df["SAILING DATE"], dayfirst=True, errors="coerce"
     )
 
     # Filtrer les dates invalides
