@@ -1,39 +1,60 @@
-import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
 import networkx as nx
+import pandas as pd
 
-
-def calculer_densite_temporelle(inclure_intra=True, save=True, verbose=True):
+# Redirection vers results/ et reports/figures/ si config.py existe, sinon fallback local
+try:
+    from config import FIGURES_DIR, RESULTS_DIR
+except ImportError:
     base_dir = Path(__file__).resolve().parent.parent
-    stream_path = base_dir / "data_clean" / "stream_graph_2010.csv"
-    output_path = base_dir / "data_clean" / "densite_temporelle_2010.csv"
+    RESULTS_DIR = base_dir / "results"
+    FIGURES_DIR = base_dir / "reports" / "figures"
 
-    # Charger le Stream Graph
-    df = pd.read_csv(stream_path)
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# =============================================================================
+# 1. MÉTRIQUE 1 : DENSITÉ TEMPORELLE δ(t)
+# =============================================================================
+
+
+def calculer_densite_temporelle(
+    year=2010, inclure_intra=True, save=True, verbose=True
+):
+    base_dir = Path(__file__).resolve().parent.parent
+    stream_path = base_dir / "data_clean" / f"stream_graph_{year}.csv"
+    output_csv = RESULTS_DIR / f"densite_temporelle_{year}.csv"
+    output_fig = FIGURES_DIR / f"densite_temporelle_{year}.png"
+
+    if not stream_path.exists():
+        print(f"Erreur : Fichier {stream_path.name} introuvable.")
+        return None
+
+    # Charger le "stream graph"
+    df = pd.read_csv(stream_path, low_memory=False)
     df["SAILING DATE"] = pd.to_datetime(df["SAILING DATE"])
     df["NEXT_ARRIVAL_DATE"] = pd.to_datetime(df["NEXT_ARRIVAL_DATE"])
 
-    # Option : exclure les liens intra-cluster (cabotage local) pour ne garder
-    # que la connectivité entre zones distinctes
+    # si tu veux exclure les liens intra-cluster 
     if not inclure_intra:
         df = df[~df["INTRA_CLUSTER"]].copy()
 
     if verbose:
-        print(f"Liens utilisés pour δ(t) : {len(df)} "
-              f"({'avec' if inclure_intra else 'sans'} intra-cluster)")
+        print(
+            f"\n=== DENSITÉ TEMPORELLE {year} ==="
+            f"\nLiens utilisés pour δ(t) : {len(df)} "
+            f"({'avec' if inclure_intra else 'sans'} intra-cluster)"
+        )
 
     # Étape 1 : table des départs (+1 le jour du départ)
-    departs = pd.DataFrame({
-        "jour": df["SAILING DATE"],
-        "variation": 1
-    })
+    departs = pd.DataFrame({"jour": df["SAILING DATE"], "variation": 1})
 
     # Étape 2 : table des arrivées (-1 le lendemain de l'arrivée)
-    arrivees = pd.DataFrame({
-        "jour": df["NEXT_ARRIVAL_DATE"] + pd.Timedelta(days=1),
-        "variation": -1
-    })
+    arrivees = pd.DataFrame(
+        {"jour": df["NEXT_ARRIVAL_DATE"] + pd.Timedelta(days=1), "variation": -1}
+    )
 
     # Étape 3 : empiler les événements
     evenements = pd.concat([departs, arrivees])
@@ -48,49 +69,62 @@ def calculer_densite_temporelle(inclure_intra=True, save=True, verbose=True):
     densite = variation_par_jour.cumsum()
 
     # Combler les jours sans événement pour avoir une série continue
-    plage_complete = pd.date_range(start=densite.index.min(), end=densite.index.max(), freq="D")
+    plage_complete = pd.date_range(
+        start=densite.index.min(), end=densite.index.max(), freq="D"
+    )
     densite = densite.reindex(plage_complete).ffill()
 
     if save:
-        densite.to_csv(output_path, header=["densite"])
+        densite.to_csv(output_csv, header=["densite"])
         if verbose:
-            print(f"✓ Densité temporelle sauvegardée : {output_path}")
+            print(f" densité temporelle sauvegardée : {output_csv}")
 
     # Visualisation de la densité des liens actifs à l'instant T
     plt.figure(figsize=(14, 5))
     densite.plot()
     plt.xlabel("Date")
     plt.ylabel("Nombre de liens actifs δ(t)")
-    plt.title("Densité temporelle du réseau maritime 2010")
+    plt.title(f"Densité temporelle du réseau maritime {year}")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
+
+    if save:
+        plt.savefig(output_fig, dpi=300)
+        if verbose:
+            print(f"✓ Graphique densité sauvegardé : {output_fig}")
+
     plt.show()
 
     return densite
 
-    # =============================================================================
-# 3. MÉTRIQUE 2 : COMPOSANTES CONNEXES HEBDOMADAIRES G_Δ
+
+# =============================================================================
+# 2. MÉTRIQUE 2 : COMPOSANTES CONNEXES HEBDOMADAIRES G_Δ
 # =============================================================================
 
 
-from pathlib import Path
-import matplotlib.pyplot as plt
-import networkx as nx
-import pandas as pd
-
-
-def analyser_composantes_connexes(df, save=True, verbose=True):
+def analyser_composantes_connexes(year=2010, df=None, save=True, verbose=True):
     base_dir = Path(__file__).resolve().parent.parent
-    output_path = base_dir / "data_clean" / "composantes_connexes_2010.csv"
+    output_csv = RESULTS_DIR / f"composantes_connexes_{year}.csv"
+    output_fig = FIGURES_DIR / f"composantes_connexes_{year}.png"
 
-    # Étape 1 : créer une colonne "semaine"
-   # df["semaine"] = (
-      #  df["SAILING DATE"].dt.to_period("2W").apply(lambda r: r.start_time)
-    #)
+    # Si df n'est pas fourni en argument, on le charge automatiquement
+    if df is None:
+        stream_path = base_dir / "data_clean" / f"stream_graph_{year}.csv"
+        if not stream_path.exists():
+            print(f"Erreur : Fichier {stream_path.name} introuvable.")
+            return None
+        df = pd.read_csv(stream_path, low_memory=False)
+        df["SAILING DATE"] = pd.to_datetime(df["SAILING DATE"])
+
+    if verbose:
+        print(f"\n=== COMPOSANTES CONNEXES {year} ===")
+
+    # Étape 1 : créer une colonne "semaine" (fenêtres de 14 jours)
     date_min = df["SAILING DATE"].min()
     df["semaine"] = date_min + pd.to_timedelta(
-    ((df["SAILING DATE"] - date_min).dt.days // 14) * 14, unit="D"
-)
+        ((df["SAILING DATE"] - date_min).dt.days // 14) * 14, unit="D"
+    )
 
     # Étape 2 : filtrer uniquement les liens inter-cluster
     df_inter = df[~df["INTRA_CLUSTER"]]
@@ -98,7 +132,6 @@ def analyser_composantes_connexes(df, save=True, verbose=True):
     # Étape 3 : boucle par semaine
     resultats = []
     for semaine, groupe in df_inter.groupby("semaine"):
-        # Vectorisé avec NetworkX (remplace avantageusement iterrows)
         G = nx.from_pandas_edgelist(
             groupe, source="SOURCE_CLUSTER_ID", target="TARGET_CLUSTER_ID"
         )
@@ -108,7 +141,6 @@ def analyser_composantes_connexes(df, save=True, verbose=True):
         nb_composantes = len(composantes)
         plus_grosse = max(len(c) for c in composantes) if composantes else 0
 
-        # Affichage conditionnel (correction du bug d'indentation)
         if verbose and nb_noeuds > 100:
             ratio = (100 * plus_grosse // nb_noeuds) if nb_noeuds > 0 else 0
             print(
@@ -116,23 +148,22 @@ def analyser_composantes_connexes(df, save=True, verbose=True):
                 f"plus grosse composante = {plus_grosse} ({ratio}%)"
             )
 
-        # On sauvegarde toutes les métriques utiles dans le dictionnaire
-        resultats.append(
-            {
-                "semaine": semaine,
-                "nb_composantes": nb_composantes,
-                "nb_noeuds": nb_noeuds,
-                "taille_composante_geante": plus_grosse,
-                "ratio_composante_geante": (
-                    plus_grosse / nb_noeuds if nb_noeuds > 0 else 0
-                ),
-            }
-        )
+        resultats.append({
+            "semaine": semaine,
+            "nb_composantes": nb_composantes,
+            "nb_noeuds": nb_noeuds,
+            "taille_composante_geante": plus_grosse,
+            "ratio_composante_geante": (
+                plus_grosse / nb_noeuds if nb_noeuds > 0 else 0
+            ),
+        })
 
     df_resultats = pd.DataFrame(resultats)
 
     if save:
-        df_resultats.to_csv(output_path, index=False)
+        df_resultats.to_csv(output_csv, index=False)
+        if verbose:
+            print(f"Composantes connexes sauvegardées : {output_csv}")
 
     # Étape 4 : tracer l'évolution
     plt.figure(figsize=(14, 5))
@@ -145,19 +176,21 @@ def analyser_composantes_connexes(df, save=True, verbose=True):
     plt.xticks(rotation=45)
     plt.xlabel("Semaine")
     plt.ylabel("Nombre de composantes connexes")
-    plt.title("Fragmentation du réseau maritime 2010")
+    plt.title(f"Fragmentation du réseau maritime {year}")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
+
+    if save:
+        plt.savefig(output_fig, dpi=300)
+        if verbose:
+            print(f"✓ Graphique composantes sauvegardé : {output_fig}")
+
     plt.show()
 
     return df_resultats
 
 
 if __name__ == "__main__":
-    base_dir = Path(__file__).resolve().parent.parent
-    stream_path = base_dir / "data_clean" / "stream_graph_2010.csv"
-
-    df = pd.read_csv(stream_path)
-    df["SAILING DATE"] = pd.to_datetime(df["SAILING DATE"])
-
-    analyser_composantes_connexes(df)
+    for year in [2010, 2002]:
+        calculer_densite_temporelle(year=year)
+        analyser_composantes_connexes(year=year)

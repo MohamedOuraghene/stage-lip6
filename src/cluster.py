@@ -1,14 +1,13 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 from pathlib import Path
-from scipy.cluster.hierarchy import linkage, fcluster
+import numpy as np
+import pandas as pd
+from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
 
 
 def haversine_vectorized(lon1, lat1, lon2, lat2):
-    """
-    Calcule la distance en kilomètres entre deux points ou deux séries de points GPS.
+    """Calcule la distance en kilomètres entre deux points ou deux séries de points GPS.
+
     Prend en entrée des degrés décimaux.
     """
     # Conversion des degrés en radians
@@ -17,7 +16,10 @@ def haversine_vectorized(lon1, lat1, lon2, lat2):
     # Formule de Haversine
     dlon = lon2 - lon1
     dlat = lat2 - lat1
-    a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
+    a = (
+        np.sin(dlat / 2.0) ** 2
+        + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
+    )
     c = 2.0 * np.arcsin(np.sqrt(a))
 
     # Rayon de la Terre en kilomètres
@@ -25,29 +27,48 @@ def haversine_vectorized(lon1, lat1, lon2, lat2):
     return c * rayon_terre
 
 
-def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=True, verbose=True):
+def prepare_ports_for_clustering(
+    year=2010,
+    rayon_km=44.0,
+    pourcentage_seuil=0.005,
+    save=True,
+    verbose=True,
+):
     base_dir = Path(__file__).resolve().parent.parent
-    clean_csv_path = base_dir / "data_clean" / "stays_basic_info_2010_clean.csv"
-    output_csv_path = base_dir / "data_clean" / "ports_clustered_2010.csv"
+    clean_csv_path = (
+        base_dir / "data_clean" / f"stays_basic_info_{year}_clean.csv"
+    )
+    output_csv_path = base_dir / "data_clean" / f"ports_clustered_{year}.csv"
 
     if not clean_csv_path.exists():
-        print(" fichier clean introuvable. lance d'abord clean.py ")
+        print(
+            f" Fichier clean introuvable pour {year}. Lance d'abord clean.py "
+        )
         return None
 
-    # Charger le fichier CSV nettoyé
-    df = pd.read_csv(clean_csv_path)
+    # Charger le fichier CSV nettoyé (low_memory=False évite le DtypeWarning)
+    df = pd.read_csv(clean_csv_path, low_memory=False)
 
     # 1. Calculer la fréquentation par Port
-    ports_stats = df.groupby(["PLACE ID", "Name_Final", "COUNTRY", "X1", "Y1", "Type"], dropna=False).size().reset_index(name="FREQUENTATION")
+    ports_stats = (
+        df.groupby(
+            ["PLACE ID", "Name_Final", "COUNTRY", "X1", "Y1", "Type"],
+            dropna=False,
+        )
+        .size()
+        .reset_index(name="FREQUENTATION")
+    )
 
     # 2. paramétrage du seuil dynamique
     trafic_total = ports_stats["FREQUENTATION"].sum()
     SEUIL_DYNAMIQUE = int(trafic_total * pourcentage_seuil)
 
     if verbose:
-        print("\n DIAGNOSTIC GLOBAL ")
+        print(f"\n DIAGNOSTIC GLOBAL ({year}) ")
         print(f" Trafic mondial total : {trafic_total} séjours.")
-        print(f" Seuil dynamique : ≥ {SEUIL_DYNAMIQUE} séjours pour être un Hub.")
+        print(
+            f" Seuil dynamique : ≥ {SEUIL_DYNAMIQUE} séjours pour être un Hub."
+        )
         print(" \n")
 
     # 3. calcul des distances aux ports P les plus proches
@@ -57,15 +78,24 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
     ports_stats_geo = ports_stats.dropna(subset=["X1", "Y1"])
 
     if verbose:
-        print(f" Points sans coordonnées GPS : {len(sans_gps)} ports / {sans_gps['FREQUENTATION'].sum()} séjours")
-        print(" -> conservés comme clusters autonomes (non agrégeables géographiquement)\n")
+        print(
+            f" Points sans coordonnées GPS : {len(sans_gps)} ports /"
+            f" {sans_gps['FREQUENTATION'].sum()} séjours"
+        )
+        print(
+            " -> conservés comme clusters autonomes (non agrégeables"
+            " géographiquement)\n"
+        )
 
     # On fait nos groupes sur ce tableau propre géographiquement
     ports_P = ports_stats_geo[ports_stats_geo["Type"] == "P"].copy()
     ports_autres = ports_stats_geo[ports_stats_geo["Type"] != "P"].copy()
 
     if ports_P.empty:
-        print(" Erreur critique : Aucun port de Type P trouvé dans le dataset!.")
+        print(
+            f" Erreur critique : Aucun port de Type P trouvé dans le dataset"
+            f" {year}!."
+        )
         return None
 
     # Pour chaque point secondaire, on cherche sa distance au port P le plus proche
@@ -76,7 +106,9 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
     # Boucle sur les points secondaires
     for idx, row in ports_autres.iterrows():
         # Calcul de la distance entre CE point secondaire et TOUS les ports P du monde
-        distances = haversine_vectorized(row["X1"], row["Y1"], ports_P["X1"], ports_P["Y1"])
+        distances = haversine_vectorized(
+            row["X1"], row["Y1"], ports_P["X1"], ports_P["Y1"]
+        )
 
         # On trouve l'index du port P le plus proche
         idx_proche = distances.idxmin()
@@ -97,7 +129,9 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
     ports_P["PORT_PROCHE_NAME"] = ports_P["Name_Final"]
 
     # On rassemble tout le monde dans un seul grand tableau propre
-    ports_complet = pd.concat([ports_P, ports_autres]).sort_values(by="FREQUENTATION", ascending=False)
+    ports_complet = pd.concat([ports_P, ports_autres]).sort_values(
+        by="FREQUENTATION", ascending=False
+    )
 
     # Stratégie de fusion des ports A et L avec les ports P proches
     RAYON_MAX_KM = rayon_km
@@ -137,7 +171,9 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
     A_ou_L_a_fusionner = est_A_ou_L & est_proche
     petits_ports_P = (ports_complet["Type"] == "P") & ~a_gros_trafic
 
-    Agglomerations_Candidats = ports_complet[petits_ports_P | A_ou_L_a_fusionner]
+    Agglomerations_Candidats = ports_complet[
+        petits_ports_P | A_ou_L_a_fusionner
+    ]
 
     # RÉPARATION 3 : on matérialise le statut de hub en colonne.
     # Un merge remet l'index à zéro : un masque booléen calculé avant ne serait plus aligné après.
@@ -145,9 +181,12 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
 
     # 5. AFFICHAGE DES RÉSULTATS DU TRI
     if verbose:
-        print("     SÉPARATION FINALE ")
+        print(f"     SÉPARATION FINALE ({year}) ")
         print(f" HUBS FINAUX AUTONOMES : {len(Hubs_Finaux)} points.")
-        print(f" POINTS À AGGLOMÉRER GÉOGRAPHIQUEMENT : {len(Agglomerations_Candidats)} points.")
+        print(
+            " POINTS À AGGLOMÉRER GÉOGRAPHIQUEMENT :"
+            f" {len(Agglomerations_Candidats)} points."
+        )
         print(f" NOEUDS ÉLIMINÉS (Bruit de fond) : {len(Bruit_Elimine)} points.")
         print("\n")
 
@@ -165,7 +204,12 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
         lats = ports_a_clusteriser["Y1"].values
 
         # Calcul de la matrice de distances
-        matrice_distances = haversine_vectorized(lons[:, np.newaxis], lats[:, np.newaxis], lons[np.newaxis, :], lats[np.newaxis, :])
+        matrice_distances = haversine_vectorized(
+            lons[:, np.newaxis],
+            lats[:, np.newaxis],
+            lons[np.newaxis, :],
+            lats[np.newaxis, :],
+        )
 
         # Compression de la matrice pour SciPy
         vecteur_distances = squareform(matrice_distances, checks=False)
@@ -174,30 +218,44 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
         arbre_clustering = linkage(vecteur_distances, method="complete")
 
         # Coupe de l'arbre au rayon choisi (Fcluster)
-        labels_clusters = fcluster(arbre_clustering, t=RAYON_MAX_KM, criterion="distance")
+        labels_clusters = fcluster(
+            arbre_clustering, t=RAYON_MAX_KM, criterion="distance"
+        )
 
         # On ajoute ces numéros de clusters temporaires
         ports_a_clusteriser["SciPy_Cluster_ID"] = labels_clusters
 
         # Tri par fréquentation décroissante : le "chef" de chaque cluster sera en première position
-        ports_a_clusteriser = ports_a_clusteriser.sort_values(by="FREQUENTATION", ascending=False)
+        ports_a_clusteriser = ports_a_clusteriser.sort_values(
+            by="FREQUENTATION", ascending=False
+        )
 
         # Propagation via .transform("first")
         ports_a_clusteriser["Cluster_ID_Definitif"] = (
-            ports_a_clusteriser.groupby("SciPy_Cluster_ID")["PLACE ID"].transform("first")
+            ports_a_clusteriser.groupby("SciPy_Cluster_ID")[
+                "PLACE ID"
+            ].transform("first")
         )
         ports_a_clusteriser["Cluster_Name_Definitif"] = (
-            ports_a_clusteriser.groupby("SciPy_Cluster_ID")["Name_Final"].transform("first")
+            ports_a_clusteriser.groupby("SciPy_Cluster_ID")[
+                "Name_Final"
+            ].transform("first")
         )
     else:
-        ports_a_clusteriser["Cluster_ID_Definitif"] = ports_a_clusteriser["PLACE ID"]
-        ports_a_clusteriser["Cluster_Name_Definitif"] = ports_a_clusteriser["Name_Final"]
+        ports_a_clusteriser["Cluster_ID_Definitif"] = ports_a_clusteriser[
+            "PLACE ID"
+        ]
+        ports_a_clusteriser["Cluster_Name_Definitif"] = ports_a_clusteriser[
+            "Name_Final"
+        ]
 
     # Etape 3 : Jointure finale
     # La table de correspondance contient les petits ports P (-> leur cluster)
     # ET les hubs P (-> eux-mêmes), pour qu'un mouillage voisin d'un gros port
     # puisse quand même être rattaché à ce gros port.
-    corresp_petits = ports_a_clusteriser[["PLACE ID", "Cluster_ID_Definitif", "Cluster_Name_Definitif"]]
+    corresp_petits = ports_a_clusteriser[
+        ["PLACE ID", "Cluster_ID_Definitif", "Cluster_Name_Definitif"]
+    ]
 
     hubs_P = ports_complet[est_port_P_majeur][["PLACE ID", "Name_Final"]].copy()
     hubs_P["Cluster_ID_Definitif"] = hubs_P["PLACE ID"]
@@ -211,7 +269,7 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
         left_on="PORT_PROCHE_ID",
         right_on="PLACE ID",
         how="left",
-        suffixes=("", "_y")
+        suffixes=("", "_y"),
     )
 
     # RÉPARATION 4 : le rattachement est CONDITIONNEL à la distance.
@@ -222,14 +280,22 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
 
     # Un hub reste son propre cluster, quoi qu'ait produit le merge
     ports_complet.loc[ports_complet["EST_HUB"], "Cluster_ID_Definitif"] = np.nan
-    ports_complet.loc[ports_complet["EST_HUB"], "Cluster_Name_Definitif"] = np.nan
+    ports_complet.loc[ports_complet["EST_HUB"], "Cluster_Name_Definitif"] = (
+        np.nan
+    )
 
     # Attribution de l'ID de cluster et du nom harmonisé
-    ports_complet["Cluster_ID"] = ports_complet["Cluster_ID_Definitif"].fillna(ports_complet["PLACE ID"])
-    ports_complet["Cluster_Name"] = ports_complet["Cluster_Name_Definitif"].fillna(ports_complet["Name_Final"])
+    ports_complet["Cluster_ID"] = ports_complet["Cluster_ID_Definitif"].fillna(
+        ports_complet["PLACE ID"]
+    )
+    ports_complet["Cluster_Name"] = ports_complet[
+        "Cluster_Name_Definitif"
+    ].fillna(ports_complet["Name_Final"])
 
     # Nettoyage des colonnes temporaires
-    ports_complet = ports_complet.drop(columns=["Cluster_ID_Definitif", "Cluster_Name_Definitif", "PLACE ID_y"])
+    ports_complet = ports_complet.drop(
+        columns=["Cluster_ID_Definitif", "Cluster_Name_Definitif", "PLACE ID_y"]
+    )
 
     # RÉPARATION 5 (suite) : on réintègre les points sans GPS comme clusters autonomes
     if not sans_gps.empty:
@@ -243,25 +309,30 @@ def prepare_ports_for_clustering(rayon_km=44.0, pourcentage_seuil=0.005, save=Tr
         ports_complet = pd.concat([ports_complet, sans_gps], ignore_index=True)
 
     # Le suffixe " Area" n'a de sens que pour les clusters réellement multi-points
-    taille_cluster = ports_complet.groupby("Cluster_ID")["PLACE ID"].transform("nunique")
+    taille_cluster = ports_complet.groupby("Cluster_ID")["PLACE ID"].transform(
+        "nunique"
+    )
     ports_complet["Cluster_Name"] = np.where(
         taille_cluster > 1,
         ports_complet["Cluster_Name"].astype(str) + " Area",
-        ports_complet["Cluster_Name"].astype(str)
+        ports_complet["Cluster_Name"].astype(str),
     )
 
     # sauvegarde du fichier pour étapes suivantes
     if save:
         ports_complet.to_csv(output_csv_path, index=False)
         if verbose:
-            print(f" Fichier de clustering sauvegardé dans : {output_csv_path}")
+            print(
+                f" Fichier de clustering sauvegardé dans : {output_csv_path}"
+            )
 
     return ports_complet
 
 
-def tester_combinaison(rayon_km, pourcentage_seuil):
+def tester_combinaison(rayon_km, pourcentage_seuil, year=2010):
     """Lance le clustering avec un couple (rayon, seuil) et renvoie nb_clusters + taux de réduction."""
     ports_complet = prepare_ports_for_clustering(
+        year=year,
         rayon_km=rayon_km,
         pourcentage_seuil=pourcentage_seuil,
         save=False,
@@ -277,52 +348,83 @@ def tester_combinaison(rayon_km, pourcentage_seuil):
 
 
 if __name__ == "__main__":
-    # 1. On lance le clustering et on récupère le tableau final
-    ports_final = prepare_ports_for_clustering()
+    for year in [2010, 2002]:
+        print(f"\n==================================================")
+        print(f"         TRAITEMENT DU CLUSTERING : {year}")
+        print(f"==================================================")
 
-    if ports_final is not None:
-        # 2. On compte les points uniques de départ et les clusters d'arrivée
-        nb_points_initiaux = ports_final["PLACE ID"].nunique()
-        nb_clusters_finaux = ports_final["Cluster_ID"].nunique()
-        taux_reduction = (nb_points_initiaux - nb_clusters_finaux) / nb_points_initiaux * 100
+        # 1. On lance le clustering et on récupère le tableau final
+        ports_final = prepare_ports_for_clustering(year=year)
 
-        # 3. Affichage du résultat
-        print("\n      TEST DE COMPLEXITÉ ")
-        print(f"• Nombre de points au départ (brut) : {nb_points_initiaux}")
-        print(f"• Nombre de zones à l'arrivée (clusters) : {nb_clusters_finaux}")
-        print(f"➔ RÉDUCTION DE LA COMPLEXITÉ : {taux_reduction:.1f}%")
-        print(" \n")
+        if ports_final is not None:
+            # 2. On compte les points uniques de départ et les clusters d'arrivée
+            nb_points_initiaux = ports_final["PLACE ID"].nunique()
+            nb_clusters_finaux = ports_final["Cluster_ID"].nunique()
+            taux_reduction = (
+                (nb_points_initiaux - nb_clusters_finaux)
+                / nb_points_initiaux
+                * 100
+            )
 
-        gros_clusters = ports_final.groupby(["Cluster_ID", "Cluster_Name"]).agg(
-            nb_ports=("PLACE ID", "nunique"),
-            trafic=("FREQUENTATION", "sum")
-        ).sort_values("nb_ports", ascending=False).head(15)
-        print(gros_clusters)
+            # 3. Affichage du résultat
+            print(f"\n      TEST DE COMPLEXITÉ ({year}) ")
+            print(
+                f"• Nombre de points au départ (brut) : {nb_points_initiaux}"
+            )
+            print(
+                "• Nombre de zones à l'arrivée (clusters) :"
+                f" {nb_clusters_finaux}"
+            )
+            print(f"➔ RÉDUCTION DE LA COMPLEXITÉ : {taux_reduction:.1f}%")
+            print(" \n")
 
-        for cid, grp in ports_final.groupby("Cluster_ID"):
-            if grp["PLACE ID"].nunique() < 2 or grp[["X1","Y1"]].isna().any().any():
-                continue
-            lons, lats = grp["X1"].values, grp["Y1"].values
-            d = haversine_vectorized(lons[:,None], lats[:,None], lons[None,:], lats[None,:])
-            if d.max() > 44:
-                print(f"{grp['Cluster_Name'].iloc[0]} : {d.max():.0f} km")
+            gros_clusters = (
+                ports_final.groupby(["Cluster_ID", "Cluster_Name"])
+                .agg(
+                    nb_ports=("PLACE ID", "nunique"),
+                    trafic=("FREQUENTATION", "sum"),
+                )
+                .sort_values("nb_ports", ascending=False)
+                .head(15)
+            )
+            print(gros_clusters)
 
-        # 4. Matrice de sensibilité (grid search simple)
-        rayons_to_test = [30, 44, 75, 100, 150]
-        seuils_to_test = [0.001, 0.005, 0.01, 0.02]
+            for cid, grp in ports_final.groupby("Cluster_ID"):
+                if (
+                    grp["PLACE ID"].nunique() < 2
+                    or grp[["X1", "Y1"]].isna().any().any()
+                ):
+                    continue
+                lons, lats = grp["X1"].values, grp["Y1"].values
+                d = haversine_vectorized(
+                    lons[:, None], lats[:, None], lons[None, :], lats[None, :]
+                )
+                if d.max() > 44:
+                    print(f"{grp['Cluster_Name'].iloc[0]} : {d.max():.0f} km")
 
-    resultats = []
-    for r in rayons_to_test:
-        for s in seuils_to_test:
-            nb_c, taux = tester_combinaison(rayon_km=r, pourcentage_seuil=s)
-            resultats.append({
-                "Rayon (km)": r,
-                "Seuil Trafic (%)": s * 100,
-                "Nb Clusters": nb_c,
-                "Reduction (%)": round(taux, 1) if taux is not None else None,
-            })
+            # 4. Matrice de sensibilité (grid search simple)
+            rayons_to_test = [30, 44, 75, 100, 150]
+            seuils_to_test = [0.001, 0.005, 0.01, 0.02]
 
-    df_res = pd.DataFrame(resultats)
-    print("\n================ MATRICE DE SENSIBILITE ================")
-    print(df_res.to_string(index=False))
-    print()
+            resultats = []
+            for r in rayons_to_test:
+                for s in seuils_to_test:
+                    nb_c, taux = tester_combinaison(
+                        rayon_km=r, pourcentage_seuil=s, year=year
+                    )
+                    resultats.append({
+                        "Rayon (km)": r,
+                        "Seuil Trafic (%)": s * 100,
+                        "Nb Clusters": nb_c,
+                        "Reduction (%)": (
+                            round(taux, 1) if taux is not None else None
+                        ),
+                    })
+
+            df_res = pd.DataFrame(resultats)
+            print(
+                f"\n================ MATRICE DE SENSIBILITE ({year})"
+                " ================"
+            )
+            print(df_res.to_string(index=False))
+            print()
