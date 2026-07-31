@@ -2,11 +2,11 @@ from pathlib import Path
 import pandas as pd
 
 # Import de la configuration centralisée
-from config import DATA_CLEAN_DIR, DATA_DIR, MATCHING_PORTS_FILE
+from src.config import DATA_CLEAN_DIR, DATA_DIR, MATCHING_PORTS_FILE
 
 
 def clean_data(year=2010):
-    output_path = DATA_CLEAN_DIR / f"stays_basic_info_{year}_clean.csv"
+    output_path = DATA_CLEAN_DIR / f"stays_basic_info_{year}_clean.parquet"
 
     # Liste de tous les motifs de noms de fichiers possibles pour l'année
     candidates = [
@@ -73,7 +73,7 @@ def clean_data(year=2010):
     print(f"• Ports uniques actifs : {df['PLACE ID'].nunique()}")
     print(f"• Navires uniques actifs : {df['VESSEL ID'].nunique()}")
 
-    df.to_csv(output_path, index=False)
+    df.to_parquet  (output_path, index=False)
     print(f"✓ Fichier nettoyé sauvegardé : {output_path}\n")
     return df
 
@@ -83,9 +83,9 @@ if __name__ == "__main__":
     clean_data(year=2002)
 
     # Test d'inspection 2002 en utilisant le chemin robuste via DATA_CLEAN_DIR
-    file_2002 = DATA_CLEAN_DIR / "stays_basic_info_2002_clean.csv"
+    file_2002 = DATA_CLEAN_DIR / "stays_basic_info_2002_clean.parquet"
     if file_2002.exists():
-        df_2002 = pd.read_csv(file_2002)
+        df_2002 = pd.read_parquet(file_2002)
         df_2002["ARRIVAL DATE"] = pd.to_datetime(df_2002["ARRIVAL DATE"])
         print("=== Répartition des arrivées par mois en 2002 ===")
         print(df_2002["ARRIVAL DATE"].dt.month.value_counts().sort_index())

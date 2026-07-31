@@ -5,7 +5,7 @@ import pandas as pd
 
 # Redirection vers results/ et reports/figures/ si config.py existe, sinon fallback local
 try:
-    from config import FIGURES_DIR, RESULTS_DIR
+    from src.config import FIGURES_DIR, RESULTS_DIR
 except ImportError:
     base_dir = Path(__file__).resolve().parent.parent
     RESULTS_DIR = base_dir / "results"
@@ -24,8 +24,8 @@ def calculer_densite_temporelle(
     year=2010, inclure_intra=True, save=True, verbose=True
 ):
     base_dir = Path(__file__).resolve().parent.parent
-    stream_path = base_dir / "data_clean" / f"stream_graph_{year}.csv"
-    output_csv = RESULTS_DIR / f"densite_temporelle_{year}.csv"
+    stream_path = base_dir / "data_clean" / f"stream_graph_{year}.parquet"
+    output_parquet = RESULTS_DIR / f"densite_temporelle_{year}.parquet"
     output_fig = FIGURES_DIR / f"densite_temporelle_{year}.png"
 
     if not stream_path.exists():
@@ -33,7 +33,7 @@ def calculer_densite_temporelle(
         return None
 
     # Charger le "stream graph"
-    df = pd.read_csv(stream_path, low_memory=False)
+    df = pd.read_parquet(stream_path)
     df["SAILING DATE"] = pd.to_datetime(df["SAILING DATE"])
     df["NEXT_ARRIVAL_DATE"] = pd.to_datetime(df["NEXT_ARRIVAL_DATE"])
 
@@ -75,9 +75,9 @@ def calculer_densite_temporelle(
     densite = densite.reindex(plage_complete).ffill()
 
     if save:
-        densite.to_csv(output_csv, header=["densite"])
+        densite.to_frame(name="densite").reset_index(names="jour").to_parquet(output_parquet, index=False)
         if verbose:
-            print(f" densité temporelle sauvegardée : {output_csv}")
+            print(f" densité temporelle sauvegardée : {output_parquet}")
 
     # Visualisation de la densité des liens actifs à l'instant T
     plt.figure(figsize=(14, 5))
@@ -110,11 +110,11 @@ def analyser_composantes_connexes(year=2010, df=None, save=True, verbose=True):
 
     # Si df n'est pas fourni en argument, on le charge automatiquement
     if df is None:
-        stream_path = base_dir / "data_clean" / f"stream_graph_{year}.csv"
+        stream_path = base_dir / "data_clean" / f"stream_graph_{year}.parquet"
         if not stream_path.exists():
             print(f"Erreur : Fichier {stream_path.name} introuvable.")
             return None
-        df = pd.read_csv(stream_path, low_memory=False)
+        df = pd.read_parquet(stream_path) # pas de low memory en parquet
         df["SAILING DATE"] = pd.to_datetime(df["SAILING DATE"])
 
     if verbose:

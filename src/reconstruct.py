@@ -6,9 +6,9 @@ def reconstruct_stream_graph(
     year=2010, delta_t=30, save=True, verbose=True
 ):
     base_dir = Path(__file__).resolve().parent.parent
-    clean_path = base_dir / "data_clean" / f"stays_basic_info_{year}_clean.csv"
-    clustered_path = base_dir / "data_clean" / f"ports_clustered_{year}.csv"
-    output_path = base_dir / "data_clean" / f"stream_graph_{year}.csv"
+    clean_path = base_dir / "data_clean" / f"stays_basic_info_{year}_clean.parquet"
+    clustered_path = base_dir / "data_clean" / f"ports_clustered_{year}.parquet"
+    output_path = base_dir / "data_clean" / f"stream_graph_{year}.parquet"
 
     if not clean_path.exists() or not clustered_path.exists():
         print(
@@ -18,8 +18,8 @@ def reconstruct_stream_graph(
         return None
 
     # 1. Charger les deux fichiers (low_memory=False évite les DtypeWarning)
-    df = pd.read_csv(clean_path, low_memory=False)
-    clusters = pd.read_csv(clustered_path, low_memory=False)
+    df = pd.read_parquet(clean_path)
+    clusters = pd.read_parquet(clustered_path)
 
     df["ARRIVAL DATE"] = pd.to_datetime(df["ARRIVAL DATE"])
     df["SAILING DATE"] = pd.to_datetime(df["SAILING DATE"])
@@ -98,7 +98,7 @@ def reconstruct_stream_graph(
         )
 
     if save:
-        stream_graph.to_csv(output_path, index=False)
+        stream_graph.to_parquet(output_path, index=False)
         if verbose:
             print(f"\n Stream Graph sauvegardé : {output_path}")
 

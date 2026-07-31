@@ -1,5 +1,5 @@
 import pandas as pd
-from config import DATA_CLEAN_DIR, MATCHING_PORTS_FILE
+from src.config import DATA_CLEAN_DIR, MATCHING_PORTS_FILE
 
 PORTS_ILWU = [7597, 4977, 7598, 5605, 5263, 4489, 238, 2715, 4777]
 PORTS_PETROLIERS = [863, 5409, 8082, 7643, 8125, 8084, 8102]
@@ -17,8 +17,8 @@ def ports_cote_ouest():
 
 def charger(annee):
     """Charge les données nettoyées d'une année."""
-    chemin = DATA_CLEAN_DIR / f"stays_basic_info_{annee}_clean.csv"
-    df = pd.read_csv(chemin, low_memory=False)
+    chemin = DATA_CLEAN_DIR / f"stays_basic_info_{annee}_clean.parquet"
+    df = pd.read_parquet(chemin)
     df["ARRIVAL DATE"] = pd.to_datetime(df["ARRIVAL DATE"])
     df["jour"] = df["ARRIVAL DATE"].dt.date
     df["mois"] = df["ARRIVAL DATE"].dt.month

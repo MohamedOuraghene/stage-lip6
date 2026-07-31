@@ -35,19 +35,19 @@ def prepare_ports_for_clustering(
     verbose=True,
 ):
     base_dir = Path(__file__).resolve().parent.parent
-    clean_csv_path = (
-        base_dir / "data_clean" / f"stays_basic_info_{year}_clean.csv"
+    clean_parquet_path = (
+        base_dir / "data_clean" / f"stays_basic_info_{year}_clean.parquet"
     )
-    output_csv_path = base_dir / "data_clean" / f"ports_clustered_{year}.csv"
+    output_parquet_path = base_dir / "data_clean" / f"ports_clustered_{year}.parquet"
 
-    if not clean_csv_path.exists():
+    if not clean_parquet_path.exists():
         print(
             f" Fichier clean introuvable pour {year}. Lance d'abord clean.py "
         )
         return None
 
-    # Charger le fichier CSV nettoyé (low_memory=False évite le DtypeWarning)
-    df = pd.read_csv(clean_csv_path, low_memory=False)
+    # Charger le fichier Parquet nettoyé (low_memory=False évite le DtypeWarning)
+    df = pd.read_parquet(clean_parquet_path)
 
     # 1. Calculer la fréquentation par Port
     ports_stats = (
@@ -320,10 +320,10 @@ def prepare_ports_for_clustering(
 
     # sauvegarde du fichier pour étapes suivantes
     if save:
-        ports_complet.to_csv(output_csv_path, index=False)
+        ports_complet.to_parquet(output_parquet_path, index=False)
         if verbose:
             print(
-                f" Fichier de clustering sauvegardé dans : {output_csv_path}"
+                f" Fichier de clustering sauvegardé dans : {output_parquet_path}"
             )
 
     return ports_complet
