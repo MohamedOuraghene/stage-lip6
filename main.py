@@ -31,8 +31,13 @@ def run_pipeline(year, step, delta_t):
         analyser_composantes_connexes(year=year)
 
     if step in ["impact", "all"]:
-        print("\n--- 5. Analyse Causale & Groupe Témoin (impact) ---")
-        comparer(annee=year)
+        if year == 2002:
+            print("\n--- 5. Analyse d'impact ILWU (2002 vs 2010) ---")
+            comparer(annee=2002)
+        else:
+            print(
+                f"\n--- 5. Analyse d'impact ignorée : réservée à l'année de crise 2002 (année actuelle : {year}) ---"
+            )
 
     duration = time.time() - start_time
     print(
