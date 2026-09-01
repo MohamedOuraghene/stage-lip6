@@ -134,6 +134,112 @@ def tester_robustesse(annee=2002):
               f"({100*(moy_greve/moy_calme - 1):+.0f}%)")
 
 
+<<<<<<< Updated upstream
+=======
+def mouvements_par_jour(df, place_ids, colonne, plage):
+    """Compte par jour des mouvements d'un groupe de ports, sur une date donnée.
+
+    `colonne` vaut "ARRIVAL DATE" pour les arrivées, "SAILING DATE" pour les départs.
+    """
+    sous_ensemble = df[df["PLACE ID"].isin(place_ids)]
+    jours = pd.to_datetime(sous_ensemble[colonne]).dt.normalize()
+    return sous_ensemble.groupby(jours).size().reindex(plage, fill_value=0)
+
+
+def figure_departs_arrivees(annee=2002, save=True, verbose=True):
+    """Oppose le rythme des départs et des arrivées aux ports ILWU.
+
+    Les départs cessent le jour même de la fermeture. Les arrivées, elles,
+    se maintiennent plusieurs jours : les navires déjà en mer poursuivent leur
+    route et viennent mouiller au large. L'écart entre les deux courbes mesure
+    le délai de propagation de la perturbation dans le réseau.
+    """
+    df = charger(annee)
+    plage = pd.date_range(*FENETRE_FIGURE, freq="D")
+
+    arrivees = mouvements_par_jour(df, PORTS_ILWU, "ARRIVAL DATE", plage)
+    departs = mouvements_par_jour(df, PORTS_ILWU, "SAILING DATE", plage)
+
+    # Regime de reference : la periode couverte precedant la fermeture
+    avant = plage < pd.Timestamp(FERMETURE[0])
+    fermeture = (plage >= pd.Timestamp(FERMETURE[0])) & (
+        plage <= pd.Timestamp(FERMETURE[1])
+    )
+    ref_arr, ref_dep = arrivees[avant].mean(), departs[avant].mean()
+
+    if verbose:
+        print(f"\n=== DEPARTS VS ARRIVEES, PORTS ILWU {annee} ===")
+        print(f"Regime de reference ({FENETRE_FIGURE[0]} au 26 septembre) :")
+        print(f"  arrivees : {ref_arr:.1f}/jour     departs : {ref_dep:.1f}/jour")
+        print("Pendant la fermeture :")
+        print(
+            f"  arrivees : {arrivees[fermeture].mean():.1f}/jour "
+            f"({100 * (arrivees[fermeture].mean() / ref_arr - 1):+.0f} %)"
+        )
+        print(
+            f"  departs  : {departs[fermeture].mean():.1f}/jour "
+            f"({100 * (departs[fermeture].mean() / ref_dep - 1):+.0f} %)"
+        )
+
+    fig, ax = plt.subplots(figsize=(13, 5.5))
+
+    ax.axvspan(pd.Timestamp(FERMETURE[0]), pd.Timestamp(FERMETURE[1]),
+               color="#b2182b", alpha=0.10, lw=0,
+               label="Lock-out (27 sept - 8 oct)")
+    ax.axhline(ref_arr, color="#0a3069", ls=":", lw=1, alpha=0.6)
+    ax.axhline(ref_dep, color="#b35806", ls=":", lw=1, alpha=0.6)
+
+    lisse = {}
+    for serie, couleur, etiquette in [
+        (arrivees, "#0a3069", "Arrivées"),
+        (departs, "#b35806", "Départs"),
+    ]:
+        lisse[etiquette] = serie.rolling(3, center=True).mean()
+        ax.plot(plage, serie.values, color=couleur, lw=0.7, marker="o", ms=2.5, alpha=0.22)
+        ax.plot(plage, lisse[etiquette].values, color=couleur, lw=2.6, label=etiquette)
+
+    # a priori L'ecart entre les deux courbes est le stock de navires immobilises :
+    # ils sont arrives mais n'ont pas pu repartir.
+    ax.fill_between(plage, lisse["Départs"], lisse["Arrivées"],
+                    where=lisse["Arrivées"] > lisse["Départs"],
+                    color="#b2182b", alpha=0.18, lw=0,
+                    label="navires arrivés mais non repartis")
+
+    ax.annotate(
+        f"Pendant la fermeture :\ndéparts {100 * (departs[fermeture].mean() / ref_dep - 1):+.0f} %"
+        f"   arrivées {100 * (arrivees[fermeture].mean() / ref_arr - 1):+.0f} %",
+        xy=(pd.Timestamp("2002-10-02"), 24), xytext=(pd.Timestamp("2002-09-06"), 7),
+        arrowprops=dict(arrowstyle="->", color="#7a3b3b", lw=1.2),
+        fontsize=10, color="#7a3b3b",
+    )
+    ax.annotate("rattrapage", xy=(pd.Timestamp("2002-10-13"), 50),
+                xytext=(pd.Timestamp("2002-10-15"), 62),
+                arrowprops=dict(arrowstyle="->", color="#1a7a3c"),
+                fontsize=10, color="#1a7a3c")
+
+    ax.set_ylim(0, 70)
+    ax.set_xlim(plage[0], plage[-1])
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
+    ax.set_ylabel("Mouvements par jour")
+    ax.set_title(
+        "Ports ILWU 2002 : les départs décrochent avant les arrivées, et deux fois plus fort",
+        fontsize=12.5, pad=12,
+    )
+    ax.grid(alpha=0.25)
+    ax.legend(loc="lower right", framealpha=0.92, fontsize=9)
+    plt.tight_layout()
+
+    if save:
+        sortie = FIGURES_DIR / f"departs_arrivees_ilwu_{annee}.png"
+        plt.savefig(sortie, dpi=160)
+        if verbose:
+            print(f"\nFigure enregistree : {sortie}")
+    plt.close()
+
+    return pd.DataFrame({"arrivees": arrivees, "departs": departs})
+
+
+>>>>>>> Stashed changes
 if __name__ == "__main__":
     detail_greve()
     comparer()

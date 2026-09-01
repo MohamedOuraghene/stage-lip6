@@ -6,5 +6,9 @@ __pycache__/
 data_clean/
 
 notes/
-
+reports/rapport.md
 notes/contexte.md
+
+# Brouillons locaux : conserves sur le disque, hors du depot
+_preview_*.py
+reports/figures/preview_*.png
