@@ -32,7 +32,7 @@ def run_pipeline(year, step, delta_t):
 
     if step in ["impact", "all"]:
         if year == 2002:
-            print("\n--- 5. Analyse d'impact ILWU (2002 vs 2010) ---")
+            print("\n--- 5. Analyse d'impact ILWU (2002) ---")
             comparer(annee=2002)
         else:
             print(
