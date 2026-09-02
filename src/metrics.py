@@ -93,7 +93,7 @@ def calculer_densite_temporelle(
         if verbose:
             print(f"✓ Graphique densité sauvegardé : {output_fig}")
 
-    plt.show()
+    plt.close()
 
     return densite
 
@@ -185,7 +185,7 @@ def analyser_composantes_connexes(year=2010, df=None, save=True, verbose=True):
         if verbose:
             print(f"✓ Graphique composantes sauvegardé : {output_fig}")
 
-    plt.show()
+    plt.close()
 
     return df_resultats
 

@@ -1,3 +1,20 @@
-pandas
-numpy
-openpyxl
+# Dependances directes du pipeline.
+# Environnement de reference : Python 3.14, pandas 3.0.5, numpy 2.5.1,
+# pyarrow 25.0.1, scipy 1.18.0, networkx 3.6.1, matplotlib 3.11.1.
+
+# Coeur du pipeline
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0        # lecture/ecriture des fichiers .parquet
+openpyxl>=3.1        # lecture du referentiel ports (.xlsx)
+
+# Clustering spatial et metriques reseau
+scipy>=1.11          # clustering hierarchique (cluster.py)
+networkx>=3.2        # composantes connexes (metrics.py)
+
+# Figures
+matplotlib>=3.8
+
+# Cartographie -- necessaires uniquement pour src/carte.py
+folium>=0.15
+searoute>=1.2
